@@ -1,0 +1,123 @@
+export const typography = {
+  h1: {
+    fontSize: 36,
+    fontWeight: 600,
+    lineHeight: 44,
+    letterSpacing: 0,
+  },
+  h2: {
+    fontSize: 32,
+    fontWeight: 600,
+    lineHeight: 44,
+    letterSpacing: 0,
+  },
+  h3: {
+    fontSize: 28,
+    fontWeight: 600,
+    lineHeight: 36,
+    letterSpacing: 0,
+  },
+  h4: {
+    fontSize: 24,
+    fontWeight: 600,
+    lineHeight: 32,
+    letterSpacing: 0,
+  },
+  h5: {
+    fontSize: 20,
+    fontWeight: 600,
+    lineHeight: 28,
+    letterSpacing: 0,
+  },
+
+  h6: {
+    fontSize: 18,
+    fontWeight: 600,
+    lineHeight: 24,
+    letterSpacing: 0,
+  },
+  subtitle1: {
+    fontSize: 16,
+    fontWeight: 600,
+    lineHeight: 24,
+    letterSpacing: 0,
+  },
+  subtitle2: {
+    fontSize: 14,
+    fontWeight: 600,
+    lineHeight: 20,
+    letterSpacing: 0,
+  },
+  subtitle3: {
+    fontSize: 14,
+    fontWeight: 500,
+    lineHeight: 22,
+    letterSpacing: 0,
+  },
+  body1: {
+    fontSize: 16,
+    fontWeight: 500,
+    lineHeight: 24,
+    letterSpacing: 0,
+  },
+  body2: {
+    fontSize: 14,
+    fontWeight: 500,
+    lineHeight: 20,
+    letterSpacing: 0,
+  },
+  button2XL: {
+    fontSize: 28,
+    fontWeight: 600,
+    lineHeight: 36,
+    letterSpacing: 0,
+  },
+  buttonXL: {
+    fontSize: 24,
+    fontWeight: 600,
+    lineHeight: 28,
+    letterSpacing: 0,
+  },
+  buttonLG: {
+    fontSize: 20,
+    fontWeight: 600,
+    lineHeight: 28,
+    letterSpacing: 0,
+  },
+  buttonMD: {
+    fontSize: 16,
+    fontWeight: 600,
+    lineHeight: 24,
+    letterSpacing: 0,
+  },
+  buttonSM: {
+    fontSize: 12,
+    fontWeight: 600,
+    lineHeight: 20,
+    letterSpacing: 0,
+  },
+  alert: {
+    fontSize: 16,
+    fontWeight: 600,
+    lineHeight: 28,
+    letterSpacing: 0,
+  },
+  caption: {
+    fontSize: 12,
+    fontWeight: 500,
+    lineHeight: 18,
+    letterSpacing: 0,
+  },
+  overline: {
+    fontSize: 12,
+    fontWeight: 700,
+    lineHeight: 18,
+    letterSpacing: 0,
+  },
+  titleTable: {
+    fontSize: 16,
+    fontWeight: 700,
+    lineHeight: 28,
+    letterSpacing: 0,
+  },
+};
