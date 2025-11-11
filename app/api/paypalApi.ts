@@ -1,8 +1,8 @@
 const baseUrl: string = 'https://api-m.sandbox.paypal.com';
 import base64 from 'base-64';
 
-const clientId: string = 'ATvVXRgvkrT1aM3ngx6iBoh9r35RP-W3pE2W2MWO9YCP0sXjAfftvr5rN1Ft6Q3Eg9v835-V3YEe5053';
-const secretKey: string = 'EBObD5z8MkHfFNuSvkTX1PVmTQWaB5bocc1T8FYJhkVEpt3bNWzP-dekP5Pt71Ul4S3ZbvAdLAraaBCm';
+const clientId: string = '';
+const secretKey: string = '';
 
 const generateToken = async (): Promise<string> => {
   const headers = new Headers();
