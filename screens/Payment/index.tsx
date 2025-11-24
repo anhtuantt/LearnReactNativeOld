@@ -1,80 +1,73 @@
+import React, { useMemo, useState } from 'react';
+import { ImageBackground, Modal, ScrollView, View } from 'react-native';
+import { NavigationProp, useNavigation, useRoute } from '@react-navigation/native';
+import WebView from 'react-native-webview';
+import queryString from 'query-string';
+
+import LayoutScreen from '@/components/LayoutScreen';
 import Box from '@/components/Box';
+import Typography from '@/components/Typography';
 import ButtonPrimary from '@/components/Button/ButtonPrimary';
 import ButtonSync from '@/components/Button/ButtonSync';
 import Icons from '@/components/Icons';
 import Images from '@/components/Images';
-import LayoutScreen from '@/components/LayoutScreen';
-import Typography from '@/components/Typography';
-import { NavigationProp, useNavigation, useRoute } from '@react-navigation/native';
-import React, { useState } from 'react';
-import { ImageBackground, Modal, ScrollView, View } from 'react-native';
+
+import { PaymentFastContextProvider, usePaymentSelector } from './context';
+import { EPaymentMethod, EPaymentStep } from './types';
 import StepOne from './components/StepOne';
 import StepTwo from './components/StepTwo';
-import { PaymentFastContextProvider, usePaymentSelector } from './context';
-import { EPaymentStep, EPaymentMethod } from './types';
 import PaymentSelect from './components/PaymentSelect';
+
 import paypalApi from '@/app/api/paypalApi';
-import WebView from 'react-native-webview';
-import queryString from 'query-string';
 import { defiNotifyRequest } from '@/app/api';
 import { ToastShow } from '@/components/Toast';
-/*
-import {
-  PlatformPay,
-  PlatformPayButton,
-  usePlatformPay,
-} from '@stripe/stripe-react-native';
-*/
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+// implement both IPA and Paypal
 export interface IPaymentScreenParams {
   order_no: string;
 }
-export interface IPaymentData {
-  order_no: string;
-  platform: string;
-  price: number;
-  service: string;
-  wallet: string;
-  chain: string;
-}
+
+const AFTER_PATH = '/paypal/after';
+
 const PaymentScreen = () => {
-  /*const {
-    isPlatformPaySupported,
-    confirmPlatformPayPayment,
-  } = usePlatformPay();
-   */
+  const navigation: NavigationProp<any> = useNavigation();
+  const params = useRoute().params as IPaymentScreenParams;
+  const order_no = params?.order_no;
+  const insets = useSafeAreaInsets(); // NEW
+
   const { ArrowLeftIcon } = Icons;
   const { PaymentBackground } = Images;
+
   const currentStep = usePaymentSelector('currentStep');
   const paymentMethod = usePaymentSelector('paymentMethod');
   const duration = usePaymentSelector('duration');
+
   const [hasChoosePayment, setHasChoosePayment] = useState(false);
-  const [paypalUrl, setPaypalUrl] = useState<string | null>();
-  const [accessToken, setAccessToken] = useState<string | null>();
+  const [paypalUrl, setPaypalUrl] = useState<string | undefined>();
 
-  const handlePrev = () => {
-    currentStep.set(EPaymentStep.STEP_ONE);
-  };
-  const handleNext = () => {
-    currentStep.set(EPaymentStep.STEP_TWO);
-  };
-  const handleDone = () => {
-    currentStep.set(EPaymentStep.STEP_TWO);
-  };
-  const navigation: NavigationProp<any, any> = useNavigation();
-  const params = useRoute().params as IPaymentScreenParams;
-  const order_no = params?.order_no;
-  {/*
-  React.useEffect(() => {
-    void (async function () {
-      if (!(await isPlatformPaySupported({ googlePay: { testEnv: true } }))) {
-        ToastShow({ title: 'Google Pay is not supported!' });
-        return;
-      }
-    })();
-  }, []);
-  */}
+  // success snippet flag + values computed for backend update
+  const [paymentSuccess, setPaymentSuccess] = useState(false);
+  const [totalValue, setTotalValue] = useState<number>(0);
+  const [periodDays, setPeriodDays] = useState<number>(0);
+  const [finalizing, setFinalizing] = useState(false); // concurrency guard
 
-  const paymentStep = React.useMemo(() => {
+  const handleBack = () => {
+    currentStep.get == 2
+      ? currentStep.set(EPaymentStep.STEP_ONE)
+      : currentStep.get == 1 && hasChoosePayment
+      ? setHasChoosePayment(false)
+      : navigation.goBack();
+  };
+
+  const handleNext = () => currentStep.set(EPaymentStep.STEP_TWO);
+
+  const goHome = () => {
+    navigation.navigate('HomeScreen' as never);
+    // Or hard reset:
+    // navigation.reset({ index: 0, routes: [{ name: 'HomeScreen' as never }] });
+  };
+
+  const paymentStep = useMemo(() => {
     switch (currentStep.get) {
       case EPaymentStep.STEP_ONE:
         return <StepOne order_no={order_no} />;
@@ -85,121 +78,142 @@ const PaymentScreen = () => {
     }
   }, [currentStep.get]);
 
-  const fetchPaymentIntentClientSecret = async () => {
-    const result = await defiNotifyRequest.getPaymentByOrder({ order_no });
-    if (result) {
-      const totalValue = Number(
-        (Math.round(Number(result?.data?.price) * Number(duration.get) * 100) / 100).toFixed(2),
-      );
-      const clientSecret = await defiNotifyRequest.googlePayCharge({
-        payment_method: ['card'],
-        amount: totalValue * 100,
-      });
-      if (clientSecret) {
-        return clientSecret?.data?.client_secret;
-      }
-    }
-  };
-  /*
-  const onPressPayStrip = async () => {
-    const clientSecret = await fetchPaymentIntentClientSecret();
-    if(clientSecret){
-      const { error } = await confirmPlatformPayPayment(clientSecret, {
-        googlePay: {
-          testEnv: true,
-          merchantName: 'My merchant name',
-          merchantCountryCode: 'US',
-          currencyCode: 'USD',
-          billingAddressConfig: {
-            format: PlatformPay.BillingAddressFormat.Full,
-            isPhoneNumberRequired: true,
-            isRequired: true,
-          },
-        },
-      });
-  
-      if (error) {
-        console.log("error: ", error);
-        return;
-      }
-    }
-  };
-  */
-
+  // ---- PayPal flow (backend owns secrets; frontend only calls our backend) ----
   const onPressPaypal = async (): Promise<void> => {
     try {
-      const token: string = await paypalApi.generateToken();
+      setPaymentSuccess(false); // reset success snippet for new attempt
+      setFinalizing(false);     // reset guard for this session
+
       const result = await defiNotifyRequest.getPaymentByOrder({ order_no });
       if (result) {
-        const totalValue = Number(
-          (Math.round(Number(result?.data?.price) * Number(duration.get) * 100) / 100).toFixed(2),
+        const computedTotal = Number(
+          (
+            Math.round(Number(result?.data?.price) * Number(duration.get) * 100) /
+            100
+          ).toFixed(2),
         );
-        const periodValue = Number(duration.get) * 30;
-        void defiNotifyRequest.updateLastAccessPayment({
-          order_no: order_no,
-          period: periodValue,
-          total_value: totalValue,
+        const computedPeriod = Number(duration.get) * 30;
+
+        setTotalValue(computedTotal);
+        setPeriodDays(computedPeriod);
+        // NEW: create order via backend (no client secrets)
+        const create = await paypalApi.createOrder({
+          order_no,
+          months: Number(duration.get),
         });
-        const res: { links?: { rel?: string; href: string }[] } = await paypalApi.createOrder(
-          token,
-          totalValue.toFixed(2),
-        );
 
-        setAccessToken(token);
-        console.log('res++++++', res);
-
-        if (res?.links) {
-          const findUrl = res.links.find(data => data?.rel === 'approve');
-          if (findUrl) {
-            setPaypalUrl(findUrl.href);
-          }
+        if (create?.approveUrl) {
+          setPaypalUrl(create.approveUrl);
+        } else {
+          ToastShow({ title: 'Unable to start PayPal.', type: 'error' });
         }
       }
     } catch (error) {
       console.log('error', error);
+      ToastShow({ title: 'Failed to start PayPal.', type: 'error' });
     }
   };
 
   const clearPaypalState = () => {
     setPaypalUrl(undefined);
-    setAccessToken(undefined);
   };
 
-  const onUrlChange = (webviewState: any) => {
-    console.log('webviewStatewebviewState', webviewState);
-    if (webviewState.url.includes('https://example.com/cancel')) {
-      clearPaypalState();
-      return;
-    }
-    if (webviewState.url.includes('https://example.com/return')) {
-      const urlValues = queryString.parseUrl(webviewState.url);
-      console.log('my urls value', urlValues);
-      const { token } = urlValues.query;
-      if (token) {
-        void paymentSuccess(token);
-      }
-    }
-  };
+const onShouldStart = (req: any) => {
+  const url: string = req?.url || '';
 
-  const paymentSuccess = async (id: string | (string | null)[]) => {
+  // Only handle our backend return page, regardless of domain
+  if (url.includes(AFTER_PATH)) {
     try {
-      const validId = Array.isArray(id) ? id.find(i => i !== null) || '' : id;
-      const res = paypalApi.capturePayment(validId, accessToken || '');
-      console.log('capturePayment res++++', res);
-      ToastShow({ title: 'Payment sucessfull!' });
+      const { query } = queryString.parseUrl(url);
+      const status = (query?.status as string) || '';
+      const tokenParam = query?.token as string | string[] | undefined;
+
+      if (status === 'approved') {
+        const orderId = Array.isArray(tokenParam)
+          ? (tokenParam.find((i) => i) as string)
+          : tokenParam;
+        if (orderId) void paymentSuccessHandler(orderId);
+      } else {
+        // status === 'cancel' (or anything else): just close the modal
+        clearPaypalState();
+      }
+    } catch (e) {
+      console.log('parse after url error', e);
+      clearPaypalState();
+    }
+    // Prevent the WebView from rendering the /paypal/after page
+    return false;
+  }
+
+  return true; // allow all other PayPal navigations
+};
+
+// Optional fallback if some platforms still fire it:
+const onUrlChange = (nav: any) => {
+  const url: string = nav?.url || '';
+  if (!url.includes(AFTER_PATH)) return;
+
+  try {
+    const { query } = queryString.parseUrl(url);
+    const status = (query?.status as string) || '';
+    const tokenParam = query?.token as string | string[] | undefined;
+
+    if (status === 'approved') {
+      const orderId = Array.isArray(tokenParam)
+        ? (tokenParam.find((i) => i) as string)
+        : tokenParam;
+      if (orderId) void paymentSuccessHandler(orderId);
+    } else {
+      clearPaypalState();
+    }
+  } catch (e) {
+    console.log('parse after url error (fallback)', e);
+    clearPaypalState();
+  }
+};
+
+  const paymentSuccessHandler = async (id: string | (string | null)[]) => {
+    if (finalizing) return;      // guard against double-fire
+    setFinalizing(true);
+
+    try {
+      const orderId = Array.isArray(id)
+        ? (id.find((i) => i !== null) as string) || ''
+        : id;
+
+      // NEW: capture via backend (server stores capture_id & marks paid)
+      const cap = await paypalApi.captureOrder({
+        orderId,
+        order_no,
+        months: Number(duration.get),
+      });
+
+      /* (Optional) still call your updater—pass capture_id for redundancy; backend is already authoritative
+      try {
+        await defiNotifyRequest.updateLastAccessPayment({
+          order_no,
+          period: periodDays,
+          total_value: totalValue,
+          months: Number(duration.get),
+          mark_paid: true,
+          paypal_capture_id: cap?.capture_id,
+        });
+      } catch (e) {
+        console.log('order update error', e);
+      }
+      */
+      setPaymentSuccess(true); // show success snippet + switch button to Done
+      ToastShow({ title: 'Payment successful!', type: 'success' });
       clearPaypalState();
     } catch (error) {
       console.log('error raised in payment capture', error);
+      ToastShow({ title: 'Payment failed to capture.', type: 'error' });
+      clearPaypalState();
+    } finally {
+      setFinalizing(false);
     }
   };
-
-  const handleBack = () => {
-    currentStep.get == 2
-      ? handlePrev()
-      : currentStep.get == 1 && hasChoosePayment
-      ? setHasChoosePayment(false)
-      : navigation.goBack();
-  };
+  // ---- end PayPal flow ----
 
   return (
     <LayoutScreen flex={1}>
@@ -212,10 +226,14 @@ const PaymentScreen = () => {
             Payment
           </Typography>
         </Box>
-        <Box flex={1} backgroundColor={'white'} padding={12}>
+        <Box flex={1} backgroundColor={'white'} paddingBottom={insets.bottom + 6}>
           <Modal visible={!!paypalUrl}>
             <View style={{ flex: 1 }}>
-              <WebView source={{ uri: paypalUrl ?? '' }} onNavigationStateChange={onUrlChange} />
+              <WebView
+                source={{ uri: paypalUrl ?? '' }}
+                onShouldStartLoadWithRequest={onShouldStart}  // <— blocks return/cancel pages (no flash)
+                onNavigationStateChange={onUrlChange}        // fallback
+              />
             </View>
             <ButtonPrimary
               borderRadius={6}
@@ -225,6 +243,7 @@ const PaymentScreen = () => {
               backgroundColor='#1562F8'
               title='Cancel'></ButtonPrimary>
           </Modal>
+
           {!hasChoosePayment && (
             <>
               <ScrollView showsVerticalScrollIndicator={false}>{<PaymentSelect />}</ScrollView>
@@ -238,9 +257,27 @@ const PaymentScreen = () => {
               </Box>
             </>
           )}
+
           {hasChoosePayment && (
             <>
               <ScrollView showsVerticalScrollIndicator={false}>{paymentStep}</ScrollView>
+
+              {/* Success snippet (unchanged look) */}
+              {paymentSuccess && (
+                <Box
+                  borderWidth={1}
+                  borderRadius={12}
+                  borderColor='#34D399'
+                  backgroundColor='#ECFDF5'
+                  padding={12}
+                  marginVertical={8}
+                >
+                  <Typography color='#065F46' fontWeight='700'>
+                    Payment successful — your subscription is now active.
+                  </Typography>
+                </Box>
+              )}
+
               {/* button action */}
               {paymentMethod.get == EPaymentMethod.CRYPTO ? (
                 <Box flexDirection='row' gap={16}>
@@ -262,20 +299,13 @@ const PaymentScreen = () => {
                 </Box>
               ) : (
                 <Box gap={12}>
-                  {/*<PlatformPayButton
-                    type={PlatformPay.ButtonType.Pay}
-                    onPress={onPressPayStrip}
-                    style={{
-                      width: '100%',
-                      height: 50,
-                    }}
-                  />*/}
-                   <ButtonPrimary
+                  <ButtonPrimary
                     borderRadius={6}
                     textColor='#fff'
-                    onPressCustom={() => onPressPaypal()}
+                    onPressCustom={() => (paymentSuccess ? goHome() : onPressPaypal())}
                     backgroundColor='#1562F8'
-                    title='Next'></ButtonPrimary> 
+                    title={paymentSuccess ? 'Done' : 'Next'}
+                  />
                 </Box>
               )}
             </>
